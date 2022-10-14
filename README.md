@@ -16,3 +16,5 @@ services:
 ## Bot commands
 `!w2g` creates an empty watch2gether room  
 `!w2g <YouTube link>` creates a watch2gether room with the provided YouTube video playing
+
+The bot will send the link to the created rooms in the same text channel the commands were sent.
