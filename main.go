@@ -14,7 +14,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-type VideoSearchResult struct {
+type SearchVideoResult struct {
     Url string
     Title string
     Thumb string
@@ -46,7 +46,7 @@ func main() {
     }
 
     // Register the messageCreate func as a callback for MessageCreate events.
-    discord.AddHandler(messageCreate)
+    discord.AddHandler(onMessage)
 
     // In this example, we only care about receiving message events.
     discord.Identify.Intents = discordgo.IntentsGuildMessages
@@ -69,9 +69,8 @@ func main() {
     discord.Close()
 }
 
-func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+func onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
     // Ignore all messages created by the bot itself
-    // This isn't required in this specific example but it's a good practice.
     if m.Author.ID == s.State.User.ID {
         return
     }
@@ -84,10 +83,11 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
         
         if(videoUrl == "") {
             // empty links create an empty room
-            response, err := http.Post("https://w2g.tv/rooms/create", "application/json", nil)
+            response, createEmptyRoomError := http.Post("https://w2g.tv/rooms/create", "application/json", nil)
 
-            if err != nil {
-                fmt.Println(err)
+            if createEmptyRoomError != nil {
+                fmt.Println(createEmptyRoomError)
+                return
             }
 
             defer response.Body.Close()
@@ -103,8 +103,19 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
                 videoUrl = "https://www.youtube.com/watch?v=" + videoUrl
             }
 
-            videoInfo := searchVideo(videoUrl)
-            roomInfo := CreateRoom(videoInfo)
+            videoInfo, videoError := SearchVideo(videoUrl)
+
+            if videoError != nil {
+                fmt.Println(videoError)
+                return
+            }
+
+            roomInfo, roomError := CreateRoom(videoInfo)
+
+            if roomError != nil {
+                fmt.Println(roomError)
+                return
+            }
 
             // send message with room link
             s.ChannelMessageSend(
@@ -115,12 +126,14 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
     }
 }
 
-func searchVideo(videoUrl string) VideoSearchResult {
+func SearchVideo(videoUrl string) (SearchVideoResult, error) {
+    var videoInfo SearchVideoResult
+
     // look up video by url
     response, lookUpError := http.Get("https://w2g.tv/w2g_search/lookup?url=" + videoUrl)
 
     if lookUpError != nil {
-        fmt.Println(lookUpError)
+        return videoInfo, lookUpError
     }
 
     // read the response into the body buffer
@@ -129,41 +142,38 @@ func searchVideo(videoUrl string) VideoSearchResult {
     defer response.Body.Close()
 
     if readResponseError != nil {
-        fmt.Println(readResponseError)
+        return videoInfo, readResponseError
     }
-
-    var videoInfo VideoSearchResult
 
     // read the response into the videoInfo struct
+    
     videoInfoParsingError := json.Unmarshal(body, &videoInfo)
 
-    if videoInfoParsingError != nil {
-        fmt.Println(videoInfoParsingError)
-    }
-
-    return videoInfo
+    return videoInfo, videoInfoParsingError
 }
 
-func CreateRoom(videoInfo VideoSearchResult) Room {
+func CreateRoom(videoInfo SearchVideoResult) (Room, error) {
+    var room Room
+
     // create struct for room creation
     createRoomRequest := CreateRoomRequest{Share: videoInfo.Url, Title: videoInfo.Title, Thumb: videoInfo.Thumb}
 
     // parse struct to byte array
-    rawCreateRoomRequest, createRoomError := json.Marshal(createRoomRequest)
+    stringifiedCreateRoomRequest, createRoomStringError := json.Marshal(createRoomRequest)
 
-    if createRoomError != nil {
-        fmt.Println(createRoomError)
+    if createRoomStringError != nil {
+        return room, createRoomStringError
     }
 
     // send the create room request
     createRoomResponse, lookUpError := http.Post(
         "https://w2g.tv/rooms/create.json",
         "application/json",
-        bytes.NewReader(rawCreateRoomRequest),
+        bytes.NewReader(stringifiedCreateRoomRequest),
     )
 
     if lookUpError != nil {
-        fmt.Println(lookUpError)
+        return room, lookUpError
     }
 
     // read the response into the roomBody buffer
@@ -172,17 +182,11 @@ func CreateRoom(videoInfo VideoSearchResult) Room {
     defer createRoomResponse.Body.Close()
 
     if readResponseError != nil {
-        fmt.Println(readResponseError)
+        return room, readResponseError
     }
-
-    var room Room
 
     // parse the response into the room struct
     roomInfoParsingError := json.Unmarshal(roomBody, &room)
 
-    if roomInfoParsingError != nil {
-        fmt.Println(roomInfoParsingError)
-    }
-
-    return room
+    return room, roomInfoParsingError
 }
