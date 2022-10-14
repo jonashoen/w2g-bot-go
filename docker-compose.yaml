@@ -1,0 +1,7 @@
+services:
+  w2g:
+    build: .
+    restart: always
+    container_name: w2g-bot
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
